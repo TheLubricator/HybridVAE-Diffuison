@@ -1,7 +1,6 @@
-
-import kagglehub
-
-# Download latest version
-path = kagglehub.dataset_download("jessicali9530/celeba-dataset")
-
-print("Path to dataset files:", path)
+import torch
+import sys
+print(sys.executable)
+print(torch.__version__)
+print(torch.cuda.is_available())
+print(torch.version.cuda)
