@@ -12,7 +12,7 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from torchmetrics.image import FrechetInceptionDistance
 from torchmetrics.image.inception import InceptionScore
 
-from vanillaVAE import VAE, vae_loss
+from vanillaVAE import VAE, vae_loss, AE, ae_loss  # Updated import
 from latentStochasticVAE import LSVAE, lsvae_loss
 
 # Device
@@ -45,12 +45,12 @@ def main():
         plt.savefig(f"{title.replace(' ', '_')}.png")
         plt.close()
 
-    # Train VAE baseline
+    # Train VAE (Stochastic Baseline)
     vae = VAE().to(device)
     optimizer_vae = optim.Adam(vae.parameters(), lr=1e-3)
 
     print("Training Baseline VAE...")
-    for epoch in range(10):
+    for epoch in range(100):
         vae.train()
         train_loss = 0
         for batch in train_loader:
@@ -72,7 +72,7 @@ def main():
     vae_mse = []
     vae_psnr = []
     vae_ssim = []
-    vae_mse_per_batch = []  # For uncertainty calculation
+    vae_mse_per_batch = []  # For uncertainty
     fid_metric_vae = FrechetInceptionDistance(normalize=True).to(device)
     is_metric_vae = InceptionScore(normalize=True).to(device)
     with torch.no_grad():
@@ -87,7 +87,7 @@ def main():
             recon_denorm = recon * 0.3081 + 0.1307
             mse = nn.functional.mse_loss(recon, batch, reduction='mean').item()
             vae_mse.append(mse)
-            vae_mse_per_batch.append(mse)  # Store MSE for each batch
+            vae_mse_per_batch.append(mse)
             psnr_val = psnr(batch_denorm.cpu().numpy(), recon_denorm.cpu().numpy(), data_range=1.0)
             vae_psnr.append(psnr_val.mean() if psnr_val.size > 1 else psnr_val)
             ssim_metric = SSIM(data_range=1.0).to(device)
@@ -98,7 +98,7 @@ def main():
             fid_metric_vae.update(batch_3ch, real=True)
             fid_metric_vae.update(recon_3ch, real=False)
             is_metric_vae.update(recon_3ch)
-        vae_uncertainty = np.std(vae_mse_per_batch)  # Uncertainty as standard deviation of MSE
+        vae_uncertainty = np.std(vae_mse_per_batch)
         print(f"VAE Val Loss = {val_loss / len(val_loader)}")
         print(f"VAE Mean MSE = {np.mean(vae_mse)}")
         print(f"VAE Mean PSNR = {np.mean(vae_psnr)}")
@@ -110,12 +110,77 @@ def main():
         gen_samples = vae.decoder(z_sample)
         show_images(gen_samples, "VAE Generated Samples")
 
+    # Train Autoencoder (Deterministic Baseline)
+    ae = AE().to(device)
+    optimizer_ae = optim.Adam(ae.parameters(), lr=1e-3)
+
+    print("Training Autoencoder...")
+    for epoch in range(100):
+        ae.train()
+        train_loss = 0
+        for batch in train_loader:
+            if isinstance(batch, list):
+                batch = batch[0]
+            batch = batch.to(device)
+            optimizer_ae.zero_grad()
+            recon = ae(batch)
+            loss = ae_loss(recon, batch)
+            loss.backward()
+            optimizer_ae.step()
+            train_loss += loss.item()
+        print(f"Epoch {epoch+1}: AE Train Loss = {train_loss / len(train_loader)}")
+        if (epoch + 1) % 5 == 0:
+            torch.save(ae.state_dict(), f'ae_checkpoint_epoch{epoch+1}.pt')
+
+    # Evaluate Autoencoder
+    ae.eval()
+    ae_mse = []
+    ae_psnr = []
+    ae_ssim = []
+    ae_mse_per_batch = []  # For uncertainty
+    fid_metric_ae = FrechetInceptionDistance(normalize=True).to(device)
+    is_metric_ae = InceptionScore(normalize=True).to(device)
+    with torch.no_grad():
+        val_loss = 0
+        for batch in val_loader:
+            if isinstance(batch, list):
+                batch = batch[0]
+            batch = batch.to(device)
+            recon = ae(batch)
+            val_loss += ae_loss(recon, batch).item()
+            batch_denorm = batch * 0.3081 + 0.1307
+            recon_denorm = recon * 0.3081 + 0.1307
+            mse = nn.functional.mse_loss(recon, batch, reduction='mean').item()
+            ae_mse.append(mse)
+            ae_mse_per_batch.append(mse)
+            psnr_val = psnr(batch_denorm.cpu().numpy(), recon_denorm.cpu().numpy(), data_range=1.0)
+            ae_psnr.append(psnr_val.mean() if psnr_val.size > 1 else psnr_val)
+            ssim_metric = SSIM(data_range=1.0).to(device)
+            ssim_score = ssim_metric(batch_denorm, recon_denorm).item()
+            ae_ssim.append(ssim_score)
+            batch_3ch = batch_denorm.repeat(1, 3, 1, 1)
+            recon_3ch = recon_denorm.repeat(1, 3, 1, 1)
+            fid_metric_ae.update(batch_3ch, real=True)
+            fid_metric_ae.update(recon_3ch, real=False)
+            is_metric_ae.update(recon_3ch)
+        ae_uncertainty = np.std(ae_mse_per_batch)
+        print(f"AE Val Loss = {val_loss / len(val_loader)}")
+        print(f"AE Mean MSE = {np.mean(ae_mse)}")
+        print(f"AE Mean PSNR = {np.mean(ae_psnr)}")
+        print(f"AE Mean SSIM = {np.mean(ae_ssim)}")
+        print(f"AE FID = {fid_metric_ae.compute().item()}")
+        print(f"AE Inception Score = {is_metric_ae.compute()[0].item()}")
+        print(f"AE Uncertainty = {ae_uncertainty:.4f}")
+        z_sample = torch.randn(8, 4, 8, 8).to(device)
+        gen_samples = ae.decoder(z_sample)
+        show_images(gen_samples, "AE Generated Samples")
+
     # Train LS-VAE
     lsvae = LSVAE().to(device)
     optimizer_lsvae = optim.Adam(lsvae.parameters(), lr=1e-3)
 
     print("Training LS-VAE...")
-    for epoch in range(10):
+    for epoch in range(100):
         lsvae.train()
         train_loss = 0
         for batch in train_loader:
@@ -137,7 +202,7 @@ def main():
     lsvae_mse = []
     lsvae_psnr = []
     lsvae_ssim = []
-    lsvae_mse_per_batch = []  # For uncertainty calculation
+    lsvae_mse_per_batch = []  # For uncertainty
     fid_metric_lsvae = FrechetInceptionDistance(normalize=True).to(device)
     is_metric_lsvae = InceptionScore(normalize=True).to(device)
     with torch.no_grad():
@@ -152,7 +217,7 @@ def main():
             recon_denorm = recon * 0.3081 + 0.1307
             mse = nn.functional.mse_loss(recon, batch, reduction='mean').item()
             lsvae_mse.append(mse)
-            lsvae_mse_per_batch.append(mse)  # Store MSE for each batch
+            lsvae_mse_per_batch.append(mse)
             psnr_val = psnr(batch_denorm.cpu().numpy(), recon_denorm.cpu().numpy(), data_range=1.0)
             lsvae_psnr.append(psnr_val.mean() if psnr_val.size > 1 else psnr_val)
             ssim_metric = SSIM(data_range=1.0).to(device)
@@ -163,7 +228,7 @@ def main():
             fid_metric_lsvae.update(batch_3ch, real=True)
             fid_metric_lsvae.update(recon_3ch, real=False)
             is_metric_lsvae.update(recon_3ch)
-        lsvae_uncertainty = np.std(lsvae_mse_per_batch)  # Uncertainty as standard deviation of MSE
+        lsvae_uncertainty = np.std(lsvae_mse_per_batch)
         print(f"LS-VAE Val Loss = {val_loss / len(val_loader)}")
         print(f"LS-VAE Mean MSE = {np.mean(lsvae_mse)}")
         print(f"LS-VAE Mean PSNR = {np.mean(lsvae_psnr)}")
@@ -178,85 +243,86 @@ def main():
     # Generate individual bar charts for each metric with exact values
     metrics = ['MSE', 'PSNR', 'SSIM', 'FID', 'Inception Score', 'Uncertainty']
     vae_values = [np.mean(vae_mse), np.mean(vae_psnr), np.mean(vae_ssim), fid_metric_vae.compute().item(), is_metric_vae.compute()[0].item(), vae_uncertainty]
+    ae_values = [np.mean(ae_mse), np.mean(ae_psnr), np.mean(ae_ssim), fid_metric_ae.compute().item(), is_metric_ae.compute()[0].item(), ae_uncertainty]
     lsvae_values = [np.mean(lsvae_mse), np.mean(lsvae_psnr), np.mean(lsvae_ssim), fid_metric_lsvae.compute().item(), is_metric_lsvae.compute()[0].item(), lsvae_uncertainty]
 
     os.makedirs('charts', exist_ok=True)
 
     # MSE Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[0], lsvae_values[0]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[0], ae_values[0], lsvae_values[0]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('MSE')
-    plt.title('VAE vs LS-VAE MSE Comparison')
+    plt.title('VAE vs AE vs LS-VAE MSE Comparison')
     plt.savefig('charts/mse_comparison_bar_chart.png')
     plt.close()
 
     # PSNR Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[1], lsvae_values[1]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[1], ae_values[1], lsvae_values[1]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('PSNR (dB)')
-    plt.title('VAE vs LS-VAE PSNR Comparison')
+    plt.title('VAE vs AE vs LS-VAE PSNR Comparison')
     plt.savefig('charts/psnr_comparison_bar_chart.png')
     plt.close()
 
     # SSIM Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[2], lsvae_values[2]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[2], ae_values[2], lsvae_values[2]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('SSIM')
-    plt.title('VAE vs LS-VAE SSIM Comparison')
+    plt.title('VAE vs AE vs LS-VAE SSIM Comparison')
     plt.savefig('charts/ssim_comparison_bar_chart.png')
     plt.close()
 
     # FID Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[3], lsvae_values[3]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[3], ae_values[3], lsvae_values[3]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('FID')
-    plt.title('VAE vs LS-VAE FID Comparison')
+    plt.title('VAE vs AE vs LS-VAE FID Comparison')
     plt.savefig('charts/fid_comparison_bar_chart.png')
     plt.close()
 
     # Inception Score Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[4], lsvae_values[4]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[4], ae_values[4], lsvae_values[4]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('Inception Score')
-    plt.title('VAE vs LS-VAE Inception Score Comparison')
+    plt.title('VAE vs AE vs LS-VAE Inception Score Comparison')
     plt.savefig('charts/inception_score_comparison_bar_chart.png')
     plt.close()
 
     # Uncertainty Chart
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(['VAE', 'LS-VAE'], [vae_values[5], lsvae_values[5]], color=['#1f77b4', '#ff7f0e'])
+    plt.figure(figsize=(8, 5))
+    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[5], ae_values[5], lsvae_values[5]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('Uncertainty')
-    plt.title('VAE vs LS-VAE Uncertainty Comparison')
+    plt.title('VAE vs AE vs LS-VAE Uncertainty Comparison')
     plt.savefig('charts/uncertainty_comparison_bar_chart.png')
     plt.close()
 
