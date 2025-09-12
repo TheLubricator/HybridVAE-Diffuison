@@ -1,4 +1,4 @@
-# HybridVAE-Diffusion
+# Latent Stochastic VAE
 
 A comprehensive comparison of Variational Autoencoders (VAE), Autoencoders (AE), and Latent Stochastic VAE (LS-VAE) for image generation and reconstruction tasks on the MNIST dataset.
 
