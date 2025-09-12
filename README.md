@@ -62,7 +62,7 @@ This project implements and compares three different autoencoder architectures:
 ```bash
 # Clone the repository
 git clone https://github.com/TheLubricator/Latent-Stochastic-VAE.git
-cd HybridVAE-Diffusion
+cd LS-VAE
 
 # Create virtual environment
 conda create -n vae-env python=3.10
