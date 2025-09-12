@@ -103,7 +103,6 @@ HybridVAE-Diffusion/
 ├── main.py                    # Main training script
 ├── vanillaVAE.py             # VAE and AE implementations
 ├── latentStochasticVAE.py    # LS-VAE implementation
-├── hybridVAE.py              # Hybrid model architecture
 ├── test.py                   # Environment verification
 ├── requirements.txt          # Package dependencies
 ├── charts/                   # Generated comparison charts
