@@ -1,0 +1,43 @@
+python main.py
+2.5.1
+True
+11.8
+Training Baseline VAE...
+Epoch 1: VAE Train Loss = 1767.7022652966998
+Epoch 2: VAE Train Loss = 1716.9280867764892
+Epoch 3: VAE Train Loss = 1711.1587655343267
+Epoch 4: VAE Train Loss = 1707.6953795930747
+Epoch 5: VAE Train Loss = 1704.999640433231
+Epoch 6: VAE Train Loss = 1703.481982187375
+Epoch 7: VAE Train Loss = 1701.9479968743747
+Epoch 8: VAE Train Loss = 1700.7430651816385
+Epoch 9: VAE Train Loss = 1699.7832878055797
+Epoch 10: VAE Train Loss = 1698.9237868269327
+C:\Users\nooba\anaconda3\envs\vae-env\lib\site-packages\torchmetrics\utilities\prints.py:43: UserWarning: Metric `InceptionScore` will save all extracted features in buffer. For large datasets this may lead to large memory footprint.
+  warnings.warn(*args, **kwargs)
+VAE Val Loss = 1727.071990184295
+VAE Mean MSE = 0.4028384469640561
+VAE Mean PSNR = 14.212830725258177
+VAE Mean SSIM = 0.1542565725170649
+VAE FID = 75.73735046386719
+VAE Inception Score = 2.1526553630828857
+VAE Uncertainty = 0.0569
+Training LS-VAE...
+Epoch 1: LS-VAE Train Loss = 1662.755345819854
+Epoch 2: LS-VAE Train Loss = 1603.665227574498
+Epoch 3: LS-VAE Train Loss = 1606.4036088778598
+Epoch 4: LS-VAE Train Loss = 1609.0816382018327
+Epoch 5: LS-VAE Train Loss = 1611.6730925764575
+Epoch 6: LS-VAE Train Loss = 1614.0267426481623
+Epoch 7: LS-VAE Train Loss = 1616.421013081977
+Epoch 8: LS-VAE Train Loss = 1618.5401456297525
+Epoch 9: LS-VAE Train Loss = 1620.8697116326625
+Epoch 10: LS-VAE Train Loss = 1623.01600775622
+LS-VAE Val Loss = 1628.2162514711038
+LS-VAE Mean MSE = 0.39751373326931244
+LS-VAE Mean PSNR = 14.27191632678129
+LS-VAE Mean SSIM = 0.16168232749287897
+LS-VAE FID = 71.13653564453125
+LS-VAE Inception Score = 2.1642723083496094
+LS-VAE Uncertainty = 0.0571
+Individual bar charts with exact values saved to 'charts/' directory

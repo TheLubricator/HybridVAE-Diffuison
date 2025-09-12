@@ -18,6 +18,52 @@ from latentStochasticVAE import LSVAE, lsvae_loss
 # Device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+class EarlyStopping:
+    def __init__(self, patience=7, min_delta=0.001, restore_best_weights=True, monitor_mode='min'):
+        """
+        Early stopping to stop training when monitored metric stops improving.
+        
+        Args:
+            patience (int): How many epochs to wait after last improvement
+            min_delta (float): Minimum change to qualify as improvement
+            restore_best_weights (bool): Whether to restore model weights from best epoch
+            monitor_mode (str): 'min' for metrics where lower is better, 'max' for metrics where higher is better
+        """
+        self.patience = patience
+        self.min_delta = min_delta
+        self.restore_best_weights = restore_best_weights
+        self.monitor_mode = monitor_mode
+        self.best_metric = None
+        self.counter = 0
+        self.best_weights = None
+        
+    def __call__(self, metric_value, model):
+        if self.best_metric is None:
+            self.best_metric = metric_value
+            self.save_checkpoint(model)
+        elif self._is_improvement(metric_value):
+            self.best_metric = metric_value
+            self.counter = 0
+            self.save_checkpoint(model)
+        else:
+            self.counter += 1
+            
+        if self.counter >= self.patience:
+            if self.restore_best_weights:
+                model.load_state_dict(self.best_weights)
+            return True
+        return False
+    
+    def _is_improvement(self, metric_value):
+        if self.monitor_mode == 'min':
+            return metric_value < self.best_metric - self.min_delta
+        else:  # 'max'
+            return metric_value > self.best_metric + self.min_delta
+    
+    def save_checkpoint(self, model):
+        """Save model weights."""
+        self.best_weights = model.state_dict().copy()
+
 def main():
     # Transforms for MNIST
     transform = transforms.Compose([
@@ -48,9 +94,12 @@ def main():
     # Train VAE (Stochastic Baseline)
     vae = VAE().to(device)
     optimizer_vae = optim.Adam(vae.parameters(), lr=1e-3)
+    early_stopping_vae = EarlyStopping(patience=15, min_delta=0.001, monitor_mode='min')  # Monitor validation loss
+    vae_stopped_epoch = 100  # Default to max epochs if no early stopping
 
     print("Training Baseline VAE...")
     for epoch in range(100):
+        # Training phase
         vae.train()
         train_loss = 0
         for batch in train_loader:
@@ -63,9 +112,33 @@ def main():
             loss.backward()
             optimizer_vae.step()
             train_loss += loss.item()
-        print(f"Epoch {epoch+1}: VAE Train Loss = {train_loss / len(train_loader)}")
+        
+        # Validation phase
+        vae.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, list):
+                    batch = batch[0]
+                batch = batch.to(device)
+                recon, mu, logvar = vae(batch)
+                loss = vae_loss(recon, batch, mu, logvar)
+                val_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        print(f"Epoch {epoch+1}: VAE Train Loss = {avg_train_loss:.4f}, Val Loss = {avg_val_loss:.4f}")
+        
+        # Save checkpoint every 5 epochs
         if (epoch + 1) % 5 == 0:
             torch.save(vae.state_dict(), f'vae_checkpoint_epoch{epoch+1}.pt')
+        
+        # Early stopping check (monitoring validation loss)
+        if early_stopping_vae(avg_val_loss, vae):
+            vae_stopped_epoch = epoch + 1
+            print(f"Early stopping triggered at epoch {epoch+1} (monitoring: validation loss)")
+            break
 
     # Evaluate VAE
     vae.eval()
@@ -113,9 +186,12 @@ def main():
     # Train Autoencoder (Deterministic Baseline)
     ae = AE().to(device)
     optimizer_ae = optim.Adam(ae.parameters(), lr=1e-3)
+    early_stopping_ae = EarlyStopping(patience=10, min_delta=0.0001)
+    ae_stopped_epoch = 100  # Default to max epochs if no early stopping
 
     print("Training Autoencoder...")
     for epoch in range(100):
+        # Training phase
         ae.train()
         train_loss = 0
         for batch in train_loader:
@@ -128,9 +204,33 @@ def main():
             loss.backward()
             optimizer_ae.step()
             train_loss += loss.item()
-        print(f"Epoch {epoch+1}: AE Train Loss = {train_loss / len(train_loader)}")
+        
+        # Validation phase
+        ae.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, list):
+                    batch = batch[0]
+                batch = batch.to(device)
+                recon = ae(batch)
+                loss = ae_loss(recon, batch)
+                val_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        print(f"Epoch {epoch+1}: AE Train Loss = {avg_train_loss:.6f}, Val Loss = {avg_val_loss:.6f}")
+        
+        # Save checkpoint every 5 epochs
         if (epoch + 1) % 5 == 0:
             torch.save(ae.state_dict(), f'ae_checkpoint_epoch{epoch+1}.pt')
+        
+        # Early stopping check (monitoring validation loss)
+        if early_stopping_ae(avg_val_loss, ae):
+            ae_stopped_epoch = epoch + 1
+            print(f"Early stopping triggered at epoch {epoch+1} (monitoring: validation loss)")
+            break
 
     # Evaluate Autoencoder
     ae.eval()
@@ -178,9 +278,12 @@ def main():
     # Train LS-VAE
     lsvae = LSVAE().to(device)
     optimizer_lsvae = optim.Adam(lsvae.parameters(), lr=1e-3)
+    early_stopping_lsvae = EarlyStopping(patience=20, min_delta=0.001, monitor_mode='min')  # Monitor validation loss with higher patience
+    lsvae_stopped_epoch = 100  # Default to max epochs if no early stopping
 
     print("Training LS-VAE...")
     for epoch in range(100):
+        # Training phase
         lsvae.train()
         train_loss = 0
         for batch in train_loader:
@@ -193,9 +296,33 @@ def main():
             loss.backward()
             optimizer_lsvae.step()
             train_loss += loss.item()
-        print(f"Epoch {epoch+1}: LS-VAE Train Loss = {train_loss / len(train_loader)}")
+        
+        # Validation phase
+        lsvae.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                if isinstance(batch, list):
+                    batch = batch[0]
+                batch = batch.to(device)
+                recon, mu, logvar = lsvae(batch, epoch=epoch)
+                loss = lsvae_loss(recon, batch, mu, logvar, epoch=epoch, beta=0.5)
+                val_loss += loss.item()
+        
+        avg_train_loss = train_loss / len(train_loader)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        print(f"Epoch {epoch+1}: LS-VAE Train Loss = {avg_train_loss:.4f}, Val Loss = {avg_val_loss:.4f}")
+        
+        # Save checkpoint every 5 epochs
         if (epoch + 1) % 5 == 0:
             torch.save(lsvae.state_dict(), f'lsvae_checkpoint_epoch{epoch+1}.pt')
+        
+        # Early stopping check (monitoring validation loss)
+        if early_stopping_lsvae(avg_val_loss, lsvae):
+            lsvae_stopped_epoch = epoch + 1
+            print(f"Early stopping triggered at epoch {epoch+1} (monitoring: validation loss)")
+            break
 
     # Evaluate LS-VAE
     lsvae.eval()
@@ -246,87 +373,108 @@ def main():
     ae_values = [np.mean(ae_mse), np.mean(ae_psnr), np.mean(ae_ssim), fid_metric_ae.compute().item(), is_metric_ae.compute()[0].item(), ae_uncertainty]
     lsvae_values = [np.mean(lsvae_mse), np.mean(lsvae_psnr), np.mean(lsvae_ssim), fid_metric_lsvae.compute().item(), is_metric_lsvae.compute()[0].item(), lsvae_uncertainty]
 
+    # Create labels with epoch and monitoring information
+    vae_label = f'VAE\n(ep.{vae_stopped_epoch}, monitor: val loss)'
+    ae_label = f'AE\n(ep.{ae_stopped_epoch}, monitor: val loss)'
+    lsvae_label = f'LS-VAE\n(ep.{lsvae_stopped_epoch}, monitor: val loss)'
+    
     os.makedirs('charts', exist_ok=True)
 
     # MSE Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[0], ae_values[0], lsvae_values[0]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[0], ae_values[0], lsvae_values[0]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('MSE')
-    plt.title('VAE vs AE vs LS-VAE MSE Comparison')
+    plt.title('VAE vs AE vs LS-VAE MSE Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/mse_comparison_bar_chart.png')
     plt.close()
 
     # PSNR Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[1], ae_values[1], lsvae_values[1]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[1], ae_values[1], lsvae_values[1]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('PSNR (dB)')
-    plt.title('VAE vs AE vs LS-VAE PSNR Comparison')
+    plt.title('VAE vs AE vs LS-VAE PSNR Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/psnr_comparison_bar_chart.png')
     plt.close()
 
     # SSIM Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[2], ae_values[2], lsvae_values[2]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[2], ae_values[2], lsvae_values[2]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('SSIM')
-    plt.title('VAE vs AE vs LS-VAE SSIM Comparison')
+    plt.title('VAE vs AE vs LS-VAE SSIM Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/ssim_comparison_bar_chart.png')
     plt.close()
 
     # FID Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[3], ae_values[3], lsvae_values[3]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[3], ae_values[3], lsvae_values[3]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('FID')
-    plt.title('VAE vs AE vs LS-VAE FID Comparison')
+    plt.title('VAE vs AE vs LS-VAE FID Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/fid_comparison_bar_chart.png')
     plt.close()
 
     # Inception Score Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[4], ae_values[4], lsvae_values[4]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[4], ae_values[4], lsvae_values[4]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.2f}',
                  ha='center', va='bottom')
     plt.ylabel('Inception Score')
-    plt.title('VAE vs AE vs LS-VAE Inception Score Comparison')
+    plt.title('VAE vs AE vs LS-VAE Inception Score Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/inception_score_comparison_bar_chart.png')
     plt.close()
 
     # Uncertainty Chart
-    plt.figure(figsize=(8, 5))
-    bars = plt.bar(['VAE', 'AE', 'LS-VAE'], [vae_values[5], ae_values[5], lsvae_values[5]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
+    plt.figure(figsize=(10, 6))
+    bars = plt.bar([vae_label, ae_label, lsvae_label], [vae_values[5], ae_values[5], lsvae_values[5]], color=['#1f77b4', '#2ca02c', '#ff7f0e'])
     for bar in bars:
         height = bar.get_height()
         plt.text(bar.get_x() + bar.get_width()/2., height,
                  f'{height:.4f}',
                  ha='center', va='bottom')
     plt.ylabel('Uncertainty')
-    plt.title('VAE vs AE vs LS-VAE Uncertainty Comparison')
+    plt.title('VAE vs AE vs LS-VAE Uncertainty Comparison (with Early Stopping)')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
     plt.savefig('charts/uncertainty_comparison_bar_chart.png')
     plt.close()
 
     print("Individual bar charts with exact values saved to 'charts/' directory")
+    print(f"Training Summary:")
+    print(f"- VAE stopped at epoch {vae_stopped_epoch} (monitoring: validation loss, patience: 15)")
+    print(f"- AE stopped at epoch {ae_stopped_epoch} (monitoring: validation loss, patience: 10)")
+    print(f"- LS-VAE stopped at epoch {lsvae_stopped_epoch} (monitoring: validation loss, patience: 20)")
 
 if __name__ == '__main__':
     print(torch.__version__)

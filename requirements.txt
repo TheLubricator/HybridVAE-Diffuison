@@ -1,0 +1,15 @@
+# PyTorch with CUDA support (CUDA 11.8)
+torch==2.5.1+cu118
+torchvision==0.20.1+cu118
+torchaudio==2.5.1+cu118
+
+# Core ML and scientific computing
+numpy>=1.21.0,<2.0.0
+scikit-image>=0.19.0
+torchmetrics>=1.0.0
+
+# Visualization and plotting
+matplotlib>=3.5.0
+
+# Data handling and utilities
+Pillow>=8.3.0
