@@ -20,16 +20,36 @@ This project implements and compares three different autoencoder architectures:
 
 ## 📊 Performance Results
 
-### Fixed Epochs vs Early Stopping Comparison
+### Comprehensive Training Results
 
-| Model  | Method         | Epochs | FID   | PSNR  | SSIM  | Inception Score |
-|--------|----------------|--------|-------|-------|-------|-----------------|
-| VAE    | Fixed (50)     | 50     | 70.24 | 14.22 | 0.154 | 2.15           |
-| AE     | Fixed (50)     | 50     | 65.37 | 14.31 | 0.166 | 2.30           |
-| LS-VAE | Fixed (50)     | 50     | 67.95 | 14.28 | 0.162 | 2.16           |
-| AE     | Early Stopping | 22     | 63.96 | 14.30 | 0.166 | 2.28           |
+| Epochs | Model  | Method         | Val Loss | MSE    | PSNR  | SSIM  | FID   | Inception Score | Uncertainty |
+|--------|--------|----------------|----------|--------|-------|-------|-------|-----------------|-------------|
+| 10     | VAE    | Fixed          | 1727.072 | 0.4028 | 14.21 | 0.154 | 75.74 | 2.15           | 0.0569      |
+| 10     | LS-VAE | Fixed          | 1628.216 | 0.3975 | 14.27 | 0.162 | 71.14 | 2.16           | 0.0571      |
+| 50     | VAE    | Fixed          | 1716.401 | 0.4024 | 14.22 | 0.154 | 70.24 | 2.15           | 0.0569      |
+| 50     | AE     | Fixed          | 0.3945   | 0.3945 | 14.31 | 0.166 | 65.38 | 2.30           | 0.0571      |
+| 50     | LS-VAE | Fixed          | 1626.530 | 0.3971 | 14.28 | 0.162 | 67.95 | 2.16           | 0.0570      |
+| 100    | VAE    | Fixed          | 1714.269 | 0.4020 | 14.22 | 0.155 | 70.58 | 2.15           | 0.0568      |
+| 100    | AE     | Fixed          | 0.3944   | 0.3944 | 14.31 | 0.166 | 65.68 | 2.29           | 0.0571      |
+| 100    | LS-VAE | Fixed          | 1626.243 | 0.3970 | 14.28 | 0.162 | 67.76 | 2.19           | 0.0570      |
+| 95     | VAE    | Early Stopping | 1712.910 | 0.4018 | 14.22 | 0.156 | 70.10 | 2.14           | 0.0568      |
+| 21     | AE     | Early Stopping | 0.3946   | 0.3946 | 14.31 | 0.166 | 63.73 | 2.28           | 0.0571      |
+| 21     | LS-VAE | Early Stopping | 1628.238 | 0.3975 | 14.27 | 0.163 | 67.08 | 2.17           | 0.0571      |
+
+### Key Insights
 
 **Performance Ranking**: AE > LS-VAE > VAE
+
+**Best Results by Metric**:
+- **Lowest FID**: AE (Early Stopping, 21 epochs) - 63.73
+- **Highest PSNR**: AE (All variants) - ~14.31
+- **Highest SSIM**: AE (All variants) - ~0.166
+- **Best Inception Score**: AE (Fixed 50 epochs) - 2.30
+
+**Early Stopping Effectiveness**:
+- **AE**: Achieves best FID (63.73) in just 21 epochs vs 65.38 at 50 epochs
+- **VAE**: Converges well at 95 epochs, close to 100-epoch performance
+- **LS-VAE**: Stops too early at 21 epochs, requires tuning for optimal results
 
 ## 🛠️ Installation
 
